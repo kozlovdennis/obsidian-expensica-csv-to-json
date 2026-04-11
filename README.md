@@ -147,26 +147,84 @@ Income categories:
 
 ## Editing category rules
 
-Category rules live in `rules.py`:
+Category rules live in `rules.py` in `_EXPENSE_CATEGORY_RULES` and `_INCOME_CATEGORY_RULES`.
+Each rule has this shape:
+
+```python
+(
+    "category_id",
+    (
+        "KEYWORD",
+        "ANOTHER KEYWORD",
+    ),
+),
+```
+
+For example:
 
 ```python
 _EXPENSE_CATEGORY_RULES = [
-    ("food", ("COF", "COFFEE", "TIM HORTONS")),
-    ("rent", ("LANDLORD", "RENT")),
+    (
+        "food",
+        (
+            "COFFEE",
+            "TIM HORTONS",
+            "MCDONALD",
+        ),
+    ),
+    (
+        "rent",
+        (
+            "LANDLORD",
+            "RENT",
+            re.compile(r"\bADA\b", re.IGNORECASE),
+        ),
+    ),
 ]
 
 _INCOME_CATEGORY_RULES = [
-    ("salary", ("PAYROLL", "WAGE", "SALARY")),
-    ("other_income", ("DEPOSIT", "E-TRANSFER")),
+    (
+        "salary",
+        (
+            "PAYROLL",
+            "WAGE",
+            "SALARY",
+        ),
+    ),
+    (
+        "other_income",
+        (
+            "REFUND",
+            "REVERSAL",
+            "E-TRANSFER",
+            "ETRANSFER",
+            "TRANSFER",
+        ),
+    ),
 ]
 ```
 
-The matching is case-insensitive because descriptions are converted to uppercase before checking keywords.
+Plain string keywords are case-insensitive. For example, `"AMZN Mktp"`, `"AMZN MKTP"`, and `"amzn mktp"` match the same way.
+
+Plain strings are substring matches. This is useful for broad merchant patterns like `"COFFEE"` or `"AMZN"`, but it can be too broad for short names. For exact word matching, use a regex keyword:
+
+```python
+re.compile(r"\bADA\b", re.IGNORECASE),
+```
+
+The `re` module is already imported at the top of `rules.py`.
+
+That matches `Ada`, but not `PRADA`.
 
 For a single keyword, remember the trailing comma:
 
 ```python
-("gifts_received", ("GIFT",))
+(
+    "gifts_received",
+    (
+        "GIFT",
+    ),
+),
 ```
 
 Without the comma, Python treats `("GIFT")` as a string and the matcher checks each letter separately.

@@ -18,7 +18,9 @@ _PREFIX_PATTERNS = [
 ]
 
 _PHRASE_PATTERNS = [
+    re.compile(r"\bINT VISA DEB PURCHASE REVERSAL\b", re.IGNORECASE),
     re.compile(r"\bINTL VISA DEB RETAIL PURCHASE\b", re.IGNORECASE),
+    re.compile(r"\bVISA DEBIT PURCHASE REVERSAL\b", re.IGNORECASE),
     re.compile(r"\bVISA DEBIT RETAIL PURCHASE\b", re.IGNORECASE),
     re.compile(r"\bRETAIL PURCHASE\b", re.IGNORECASE),
     re.compile(r"\bPREAUTHORIZED DEBIT\b", re.IGNORECASE),
@@ -30,7 +32,7 @@ _PHRASE_PATTERNS = [
 ]
 
 _TRAILING_PATTERNS = [
-    re.compile(r"\b\d+(?:\.\d+)?\s+USD\s+@\s+\d+(?:\.\d+)?\s*$", re.IGNORECASE),
+    re.compile(r"\b\d+(?:\.\d+)?\s+[A-Z]{3}\s+@\s+\d+(?:\.\d+)?\s*$", re.IGNORECASE),
 ]
 
 _DESCRIPTION_CLEANUPS = [
