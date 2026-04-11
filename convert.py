@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from rules import extract_description, infer_category, infer_transaction_type
+from rules import fallback_description, extract_description, infer_category, infer_transaction_type
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -35,8 +35,9 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def generate_transaction_id(conversion_time: datetime) -> str:
-    return f"{conversion_time:%Y%m%d-%H%M%S}-{secrets.token_hex(4)}"
+def generate_transaction_id(transaction_date: str, conversion_time: datetime) -> str:
+    id_date = transaction_date.replace("-", "")
+    return f"{id_date}-{conversion_time:%H%M%S}-{secrets.token_hex(4)}"
 
 
 def row_to_transaction(row: list[str], conversion_time: datetime) -> dict[str, Any]:
@@ -46,10 +47,12 @@ def row_to_transaction(row: list[str], conversion_time: datetime) -> dict[str, A
     date_text, raw_description, debit, credit = [cell.strip() for cell in row]
     transaction_type, amount = infer_transaction_type(debit, credit)
     description = extract_description(raw_description)
+    if description == "Unknown transaction":
+        description = fallback_description(raw_description, transaction_type)
     category = infer_category(transaction_type, raw_description, description)
 
     return {
-        "id": generate_transaction_id(conversion_time),
+        "id": generate_transaction_id(date_text, conversion_time),
         "date": date_text,
         "type": transaction_type,
         "amount": float(amount),

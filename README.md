@@ -1,12 +1,12 @@
 # obsidian-expensica-csv-to-json
 
-Convert CIBC CSV exports into the `transactions.json` format used by the Obsidian Expensica plugin.
+Convert CIBC CSV exports into the `transactions.json` format used by the Obsidian [Expensica](https://github.com/dhruvir-zala/obsidian-expensica) plugin.
 
 ## What the tool does
 
 - Uses the CSV date as the single source of truth for the transaction date.
-- Uses the conversion time for the `HHMMSS` portion of the generated ID.
-- Writes transactions from oldest to newest by sorting on the CSV date.
+- Uses the CSV date and conversion time for the generated ID.
+- Writes transactions from oldest to newest (as per [Expensica](https://github.com/dhruvir-zala/obsidian-expensica) logic) by sorting on the CSV date (which is sorted from newest to oldest).
 - Creates an ignored local `output/` folder when no output path is provided.
 - Prompts before writing if an explicitly provided target JSON file already exists.
 - Detects transaction type from the amount columns:
@@ -71,8 +71,15 @@ Example:
 20260410-154233-8f3c1e7a
 ```
 
-- `YYYYMMDD-HHMMSS` comes from the conversion time
+- `YYYYMMDD` comes from the CSV transaction date
+- `HHMMSS` comes from the conversion time, because CIBC CSV does not provide timestamps
 - `xxxxxxxx` is 8 hexadecimal characters from `secrets.token_hex(4)`
+
+For example, a CSV row dated `2024-03-22` converted at `20:45:00` can produce an ID like:
+
+```text
+20240322-204500-55043779
+```
 
 ## Description extraction
 
@@ -98,3 +105,94 @@ The tool uses simple keyword rules first, then falls back to:
 - `other_income`
 
 You can tune the mappings in `rules.py` as you discover more merchants in your exports.
+
+## Default Expensica categories
+
+Use the category ID on the left in generated JSON and in `rules.py`.
+
+Expense categories:
+
+- `food` -> Food & Dining
+- `groceries` -> Groceries
+- `transportation` -> Transportation
+- `rent` -> Rent/Mortgage
+- `utilities` -> Utilities
+- `internet` -> Internet & Phone
+- `entertainment` -> Entertainment
+- `shopping` -> Shopping
+- `health` -> Healthcare
+- `education` -> Education
+- `travel` -> Travel
+- `fitness` -> Fitness
+- `pets` -> Pets
+- `gifts` -> Gifts & Donations
+- `personal` -> Personal Care
+- `childcare` -> Childcare
+- `subscriptions` -> Subscriptions
+- `insurance` -> Insurance
+- `taxes` -> Taxes
+- `other_expense` -> Other Expenses
+
+Income categories:
+
+- `salary` -> Salary
+- `freelance` -> Freelance
+- `business` -> Business
+- `investments` -> Investments
+- `dividends` -> Dividends
+- `rental` -> Rental Income
+- `gifts_received` -> Gifts Received
+- `tax_returns` -> Tax Returns
+- `other_income` -> Other Income
+
+## Editing category rules
+
+Category rules live in `rules.py`:
+
+```python
+_EXPENSE_CATEGORY_RULES = [
+    ("food", ("COF", "COFFEE", "TIM HORTONS")),
+    ("rent", ("LANDLORD", "RENT")),
+]
+
+_INCOME_CATEGORY_RULES = [
+    ("salary", ("PAYROLL", "WAGE", "SALARY")),
+    ("other_income", ("DEPOSIT", "E-TRANSFER")),
+]
+```
+
+The matching is case-insensitive because descriptions are converted to uppercase before checking keywords.
+
+For a single keyword, remember the trailing comma:
+
+```python
+("gifts_received", ("GIFT",))
+```
+
+Without the comma, Python treats `("GIFT")` as a string and the matcher checks each letter separately.
+
+Rules are checked from top to bottom. Put more specific rules before broader rules if a transaction could match multiple categories.
+
+After editing rules, regenerate the output:
+
+```powershell
+python convert.py "C:\Path\cibc_chequing.csv" --pretty
+```
+
+## Appending or merging
+
+The converter does not append into an existing `transactions.json` automatically. This is intentional because repeated bank imports can easily create duplicate transactions.
+
+Recommended workflow:
+
+1. Generate a new file in the local `output/` folder by omitting the output path.
+2. Review the generated JSON.
+3. Import or copy the reviewed transactions into your Expensica data file manually.
+
+If you explicitly pass your Obsidian `transactions.json` path, the tool asks before overwriting it:
+
+```powershell
+python convert.py "C:\Path\cibc_chequing.csv" "C:\Path\Obsidian\VaultName\expensica-data\transactions.json" --pretty
+```
+
+If append support is needed later, it should be implemented as a separate script with duplicate detection.
