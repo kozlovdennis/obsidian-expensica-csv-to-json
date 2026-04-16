@@ -54,6 +54,7 @@ def row_to_transaction(row: list[str], conversion_time: datetime) -> dict[str, A
     return {
         "id": generate_transaction_id(date_text, conversion_time),
         "date": date_text,
+        "time": f"{conversion_time:%H:%M:%S}",
         "type": transaction_type,
         "amount": float(amount),
         "description": description,
