@@ -128,6 +128,11 @@ _EXPENSE_CATEGORY_RULES = [
             "THE LOOPHOLE CO",
             "TST-Salt & Pepp",
             "RANCHMANS COOKH",
+            "BISTRO",
+            "HEXAGON",
+            "COCO",
+            "SUSHI",
+            "COURT",
         ),
     ),
     (
@@ -184,6 +189,8 @@ _EXPENSE_CATEGORY_RULES = [
         "health",
         (
             "DRUGS",
+            "OPT",
+            "OPTICA",
         ),
     ),
     (
@@ -301,6 +308,11 @@ _EXPENSE_CATEGORY_RULES = [
             "IKEA",
             "CASELOGIX KIOSK",
             "MINISO",
+            "DOLLARAMA",
+            "SHEIN",
+            "CDN SUPERS",
+            "RONA",
+            "CANADIAN TIRE",
         ),
     ),
 ]

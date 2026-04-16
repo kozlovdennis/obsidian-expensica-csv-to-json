@@ -57,7 +57,7 @@ def row_to_transaction(row: list[str], conversion_time: datetime) -> dict[str, A
         "time": f"{conversion_time:%H:%M:%S}",
         "type": transaction_type,
         "amount": float(amount),
-        "description": description,
+        "description": description.upper(),
         "category": category,
     }
 
