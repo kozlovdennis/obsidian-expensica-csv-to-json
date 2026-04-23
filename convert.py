@@ -41,8 +41,10 @@ def generate_transaction_id(transaction_date: str, conversion_time: datetime) ->
 
 
 def row_to_transaction(row: list[str], conversion_time: datetime) -> dict[str, Any]:
-    if len(row) != 4:
-        raise ValueError(f"Expected 4 columns, got {len(row)}: {row!r}")
+    if len(row) == 5:
+        row = row[:4]
+    elif len(row) != 4:
+        raise ValueError(f"Expected 4 or 5 columns, got {len(row)}: {row!r}")
 
     date_text, raw_description, debit, credit = [cell.strip() for cell in row]
     transaction_type, amount = infer_transaction_type(debit, credit)

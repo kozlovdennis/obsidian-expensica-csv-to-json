@@ -18,6 +18,7 @@ Convert CIBC CSV exports into the `transactions.json` format used by the Obsidia
 ## Files
 
 - `convert.py`: command-line tool
+- `combinejson.py`: merge chequing and credit JSON files and collapse matched transfers
 - `rules.py`: description cleanup, type detection, amount parsing, and category rules
 
 ## Usage
@@ -30,6 +31,18 @@ Or omit the output path to write to the tool's local `output/` folder:
 
 ```powershell
 python convert.py "C:\Path\cibc_chequing.csv" --pretty
+```
+
+## Combine usage
+
+```powershell
+python combinejson.py "chequing-debit" "credit-visa" "C:\Path\chequing.json" "C:\Path\credit.json"
+```
+
+This writes a new combined file to:
+
+```text
+output/transactions-combined-YYYYMMDD-HHMMSS.json
 ```
 
 ## Options
