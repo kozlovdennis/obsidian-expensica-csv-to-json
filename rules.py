@@ -157,6 +157,8 @@ _EXPENSE_CATEGORY_RULES = [
             "FOOD",
             "SOBEYS",
             "BREAD",
+            "NO FRI",
+            "NO FRILLS",
         ),
     ),
     (
@@ -313,6 +315,7 @@ _EXPENSE_CATEGORY_RULES = [
             "SHEIN",
             "RONA",
             "CANADIAN TIRE",
+            "STAPLES",
         ),
     ),
 ]
