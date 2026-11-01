@@ -5,18 +5,25 @@ import json
 from datetime import datetime
 from datetime import date
 from decimal import Decimal
+from itertools import combinations
 from pathlib import Path
 from typing import Any
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Merge chequing and credit JSON files and collapse matched transfers."
+        description="Merge account JSON files and collapse matched transfers."
     )
-    parser.add_argument("property1", help="Name of the chequing account.")
-    parser.add_argument("property2", help="Name of the credit account.")
-    parser.add_argument("chequing_json", type=Path, help="Path to the chequing JSON file.")
-    parser.add_argument("credit_json", type=Path, help="Path to the credit JSON file.")
+    parser.add_argument(
+        "--account",
+        "--acc",
+        "-a",
+        action="append",
+        nargs=2,
+        required=True,
+        metavar=("NAME", "FILE"),
+        help="Account name and JSON path. Repeat for each account (at least two).",
+    )
     return parser
 
 
@@ -44,119 +51,41 @@ def parse_transaction_date(transaction: dict[str, Any]) -> date:
     return datetime.strptime(str(transaction["date"]), "%Y-%m-%d").date()
 
 
-def is_credit_transfer_candidate(transaction: dict[str, Any]) -> bool:
+def is_transfer_candidate(transaction: dict[str, Any]) -> bool:
     description = normalize_description(str(transaction.get("description", "")))
     return (
-        contains_all_terms(description, ("PAYMENT", "THANK"))
+        "TRANSFER" in description
+        or contains_all_terms(description, ("PAYMENT", "THANK"))
         or contains_all_terms(description, ("CASH", "ADVANCE"))
     )
 
 
-def is_chequing_transfer_candidate(transaction: dict[str, Any]) -> bool:
-    description = normalize_description(str(transaction.get("description", "")))
-    return (
-        contains_all_terms(description, ("TRANSFER",))
-        or contains_all_terms(description, ("BANK", "TRANSFER"))
-        or contains_all_terms(description, ("INTERNET", "TRANSFER"))
-    )
-
-
-def is_opposite_flow(chequing: dict[str, Any], credit: dict[str, Any]) -> bool:
-    chequing_type = str(chequing.get("type", "")).lower()
-    credit_type = str(credit.get("type", "")).lower()
-    return {chequing_type, credit_type} == {"expense", "income"}
-
-
-def build_internal_transaction(
-    chequing: dict[str, Any],
-    credit: dict[str, Any],
-    chequing_account: str,
-    credit_account: str,
-    fallback_time: str,
-) -> dict[str, Any]:
-    chequing_type = str(chequing["type"]).lower()
-    credit_type = str(credit["type"]).lower()
-
-    if chequing_type == "expense" and credit_type == "income":
-        description = "TRANSFER TO CREDIT"
-        from_account = chequing_account
-        to_account = credit_account
-    elif chequing_type == "income" and credit_type == "expense":
-        description = "TRANSFER TO DEBIT"
-        from_account = credit_account
-        to_account = chequing_account
-    else:
-        raise ValueError(
-            f"Unsupported transfer flow: chequing={chequing_type!r}, credit={credit_type!r}"
-        )
-
-    return {
-        "id": chequing["id"],
-        "date": chequing["date"],
-        "time": str(chequing.get("time") or fallback_time),
-        "type": "internal",
-        "amount": float(amount_as_decimal(chequing)),
-        "description": description,
-        "category": "internal",
-        "fromAccount": from_account,
-        "toAccount": to_account,
+def is_opposite_flow(first: dict[str, Any], second: dict[str, Any]) -> bool:
+    return {str(first.get("type", "")).lower(), str(second.get("type", "")).lower()} == {
+        "expense", "income"
     }
 
 
-def find_matches(
-    chequing_transactions: list[dict[str, Any]],
-    credit_transactions: list[dict[str, Any]],
-    chequing_account: str,
-    credit_account: str,
+def build_internal_transaction(
+    first: dict[str, Any],
+    second: dict[str, Any],
     fallback_time: str,
-) -> tuple[list[dict[str, Any]], set[int], set[int]]:
-    combined: list[dict[str, Any]] = []
-    matched_chequing_indices: set[int] = set()
-    matched_credit_indices: set[int] = set()
-    candidate_pairs: list[tuple[int, int, int, int]] = []
+) -> dict[str, Any]:
+    if not is_opposite_flow(first, second):
+        raise ValueError("Internal transfers require an expense and an income")
+    source, destination = (first, second) if str(first["type"]).lower() == "expense" else (second, first)
 
-    for chequing_index, chequing in enumerate(chequing_transactions):
-        if not is_chequing_transfer_candidate(chequing):
-            continue
-
-        chequing_date = parse_transaction_date(chequing)
-        chequing_amount = amount_as_decimal(chequing)
-
-        for credit_index, credit in enumerate(credit_transactions):
-            if not is_credit_transfer_candidate(credit):
-                continue
-            if amount_as_decimal(credit) != chequing_amount:
-                continue
-            if not is_opposite_flow(chequing, credit):
-                continue
-            credit_date = parse_transaction_date(credit)
-            date_diff = abs((credit_date - chequing_date).days)
-            if date_diff > 3:
-                continue
-            order_diff = abs(credit_index - chequing_index)
-            candidate_pairs.append((date_diff, order_diff, chequing_index, credit_index))
-
-    candidate_pairs.sort()
-
-    for _, _, chequing_index, credit_index in candidate_pairs:
-        if chequing_index in matched_chequing_indices or credit_index in matched_credit_indices:
-            continue
-
-        chequing = chequing_transactions[chequing_index]
-        credit = credit_transactions[credit_index]
-        combined.append(
-            build_internal_transaction(
-                chequing,
-                credit,
-                chequing_account,
-                credit_account,
-                fallback_time,
-            )
-        )
-        matched_chequing_indices.add(chequing_index)
-        matched_credit_indices.add(credit_index)
-
-    return combined, matched_chequing_indices, matched_credit_indices
+    return {
+        "id": source["id"],
+        "date": source["date"],
+        "time": str(source.get("time") or fallback_time),
+        "type": "internal",
+        "amount": float(amount_as_decimal(source)),
+        "description": f"TRANSFER TO {destination['account']}".upper(),
+        "category": "internal",
+        "fromAccount": source["account"],
+        "toAccount": destination["account"],
+    }
 
 
 def sort_transactions(transactions: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -182,33 +111,47 @@ def default_output_path(run_time: datetime) -> Path:
 
 
 def combine_transactions(
-    chequing_transactions: list[dict[str, Any]],
-    credit_transactions: list[dict[str, Any]],
-    chequing_account: str,
-    credit_account: str,
+    accounts: dict[str, list[dict[str, Any]]],
     fallback_time: str,
 ) -> tuple[list[dict[str, Any]], int]:
-    internal_transactions, matched_chequing, matched_credit = find_matches(
-        chequing_transactions,
-        credit_transactions,
-        chequing_account,
-        credit_account,
-        fallback_time,
-    )
-
-    unmatched_chequing = [
-        with_account(transaction, chequing_account)
-        for index, transaction in enumerate(chequing_transactions)
-        if index not in matched_chequing
+    transactions = [
+        with_account(transaction, account_name)
+        for account_name, account_transactions in accounts.items()
+        for transaction in account_transactions
     ]
-    unmatched_credit = [
-        with_account(transaction, credit_account)
-        for index, transaction in enumerate(credit_transactions)
-        if index not in matched_credit
+    candidates = [
+        (index, transaction)
+        for index, transaction in enumerate(transactions)
+        if is_transfer_candidate(transaction)
+    ]
+    candidate_pairs: list[tuple[int, int, int]] = []
+    for (first_index, first), (second_index, second) in combinations(candidates, 2):
+        if first["account"] == second["account"] or not is_opposite_flow(first, second):
+            continue
+        if amount_as_decimal(first) != amount_as_decimal(second):
+            continue
+        date_diff = abs((parse_transaction_date(first) - parse_transaction_date(second)).days)
+        if date_diff <= 3:
+            candidate_pairs.append((date_diff, first_index, second_index))
+
+    matched_indices: set[int] = set()
+    internal_transactions: list[dict[str, Any]] = []
+    for _, first_index, second_index in sorted(candidate_pairs):
+        if first_index in matched_indices or second_index in matched_indices:
+            continue
+        internal_transactions.append(
+            build_internal_transaction(
+                transactions[first_index], transactions[second_index], fallback_time
+            )
+        )
+        matched_indices.update((first_index, second_index))
+
+    unmatched = [
+        transaction for index, transaction in enumerate(transactions) if index not in matched_indices
     ]
 
     return (
-        sort_transactions(unmatched_chequing + unmatched_credit + internal_transactions),
+        sort_transactions(unmatched + internal_transactions),
         len(internal_transactions),
     )
 
@@ -222,15 +165,16 @@ def write_output(path: Path, transactions: list[dict[str, Any]]) -> None:
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
+    if len(args.account) < 2:
+        parser.error("Provide at least two --account NAME FILE arguments")
+    account_names = [name for name, _ in args.account]
+    if len(set(account_names)) != len(account_names):
+        parser.error("Account names must be unique")
     run_time = datetime.now()
 
-    chequing_transactions = load_transactions(args.chequing_json)
-    credit_transactions = load_transactions(args.credit_json)
+    accounts = {name: load_transactions(Path(path)) for name, path in args.account}
     combined_transactions, combined_count = combine_transactions(
-        chequing_transactions,
-        credit_transactions,
-        args.property1,
-        args.property2,
+        accounts,
         f"{run_time:%H:%M:%S}",
     )
 

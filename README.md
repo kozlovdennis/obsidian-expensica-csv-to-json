@@ -18,7 +18,7 @@ Convert CIBC CSV exports into the `transactions.json` format used by the Obsidia
 ## Files
 
 - `convert.py`: command-line tool
-- `combinejson.py`: merge chequing and credit JSON files and collapse matched transfers
+- `combinejson.py`: merge two or more account JSON files and collapse matched transfers
 - `rules.py`: description cleanup, type detection, amount parsing, and category rules
 
 ## Usage
@@ -36,14 +36,31 @@ python convert.py "C:\Path\cibc_chequing.csv" --pretty
 ## Combine usage
 
 ```powershell
-python combinejson.py "chequing-debit" "credit-visa" "C:\Path\chequing.json" "C:\Path\credit.json"
+python combinejson.py --account "debit" "C:\Path\debit.json" --account "savings" "C:\Path\savings.json" --account "credit" "C:\Path\credit.json"
 ```
+
+Repeat `--account NAME FILE` for each account (at least two, with unique names).
+Aliases: `--acc` and `-a`; these can be mixed in the same command.
+This replaces the old positional two-account command. Use your Expensica account names.
+
+Matching transfer entries across different accounts collapse into one `internal`
+transaction, with `fromAccount` set to the expense account and `toAccount` to the
+income account. This supports debit ↔ savings and payments or cash advances between
+bank and credit accounts.
+
+Both entries must have transfer descriptions (`TRANSFER`, `PAYMENT` with `THANK`,
+or `CASH` with `ADVANCE`), equal amounts, opposite income/expense types, and dates
+within three days. Closest dates match first, and each entry is used only once.
+Equal-date ties follow input order; same-amount transfers close together can be
+ambiguous and should be reviewed. Unmatched entries retain their account names.
 
 This writes a new combined file to:
 
 ```text
 output/transactions-combined-YYYYMMDD-HHMMSS.json
 ```
+
+The combined file uses the same `transactions.json` format as the converter.
 
 ## Options
 
