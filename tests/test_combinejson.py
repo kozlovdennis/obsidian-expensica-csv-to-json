@@ -353,14 +353,14 @@ class CommandLineTests(unittest.TestCase):
             payload = json.loads(output.read_text(encoding="utf-8"))
             self.assertEqual(len(payload["transactions"]), 1)
             self.assertEqual(payload["transactions"][0]["toAccount"], "savings")
-            pair_audit = json.loads(output.with_name("transactions-audit.json").read_text(encoding="utf-8"))
-            self.assertEqual(len(pair_audit["matchedPairs"]), 1)
-            pair = pair_audit["matchedPairs"][0]
-            self.assertEqual(pair["outgoing"]["id"], "out")
-            self.assertEqual(pair["incoming"]["id"], "in")
-            self.assertEqual(pair["method"], "forced_graph")
-            self.assertTrue(pair["reason"])
-            self.assertEqual(pair_audit["unresolved"], [])
+            run_log = output.with_suffix(".txt").read_text(encoding="utf-8")
+            self.assertIn(output_log.getvalue(), run_log)
+            self.assertIn(str(output), run_log)
+            self.assertIn("id=out <- incoming_id=in | forced_graph", run_log)
+            self.assertIn("forced_graph: Pair occurs in every maximum matching", run_log)
+            self.assertNotIn("BANK TRANSFER", run_log)
+            self.assertNotIn('"matchedPairs"', run_log)
+            self.assertFalse(output.with_name("transactions-audit.json").exists())
             self.assertIn("Matching methods: forced_graph=1", output_log.getvalue())
 
     def test_rejects_missing_or_duplicate_accounts_before_reading_files(self):
@@ -374,15 +374,36 @@ class CommandLineTests(unittest.TestCase):
                     main()
                 self.assertEqual(error.exception.code, 2)
 
+    def test_text_log_preserves_report_and_ambiguous_candidate_references(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            outgoing = transaction("out", "expense", description="To card ****2028")
+            incoming = [transaction(f"in-{number}", "income", description="Payment thank you") for number in (1, 2)]
+            (root / "debit.json").write_text(json.dumps({"transactions": [outgoing]}), encoding="utf-8")
+            (root / "credit.json").write_text(json.dumps({"transactions": incoming}), encoding="utf-8")
+            arguments = ["combinejson.py", "-a", "debit", str(root / "debit.json"),
+                         "-a", "credit", str(root / "credit.json")]
+            output = root / "transactions.json"
+            report = io.StringIO()
+            with patch("sys.argv", arguments), patch("combinejson.default_output_path", return_value=output):
+                with contextlib.redirect_stdout(report):
+                    self.assertEqual(main(), 0)
+            log = output.with_suffix(".txt").read_text(encoding="utf-8")
+            self.assertIn(report.getvalue(), log)
+            self.assertIn("Ambiguous: 3; missing compatible counterparts: 0", log)
+            self.assertIn("id=out | candidates=in-1, in-2", log)
+            self.assertNotIn('"transactions"', log)
+            self.assertFalse(list(root.glob("*-audit.json")))
+
 
 class LocalInputRegressionTests(unittest.TestCase):
     @unittest.skipUnless(
-        all((Path(__file__).parent / "input" / f"{name}.json").exists() for name in ("debit", "saving", "credit")),
+        all((Path(__file__).parent.parent / "input" / f"{name}.json").exists() for name in ("debit", "saving", "credit")),
         "Local bank input files are not available",
     )
     def test_available_three_account_inputs(self):
         accounts = {
-            name: load_transactions(Path(__file__).parent / "input" / f"{name}.json")
+            name: load_transactions(Path(__file__).parent.parent / "input" / f"{name}.json")
             for name in ("debit", "saving", "credit")
         }
         before = json.dumps(accounts, sort_keys=True)

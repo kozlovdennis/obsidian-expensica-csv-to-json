@@ -1,400 +1,324 @@
-# obsidian-expensica-csv-to-json
+# Obsidian Expensica CSV to JSON
 
-Convert CIBC CSV exports into the `transactions.json` format used by the Obsidian [Expensica](https://github.com/dhruvir-zala/obsidian-expensica) plugin.
+Convert CIBC CSV exports into the `transactions.json` format used by the Obsidian
+[Expensica](https://github.com/dhruvir-zala/obsidian-expensica) plugin. Combine
+account exports into internal transfers, review unresolved entries, then clean
+merchant descriptions and assign categories.
 
-## What the tool does
+| File | Purpose |
+| --- | --- |
+| [convert.py](convert.py) | Convert CSV to JSON, preserving bank descriptions and references. |
+| [combinejson.py](combinejson.py) | Merge accounts, match transfers, and write an ID-based text log. |
+| [cleanup.py](cleanup.py) | Clean descriptions and recalculate categories after confirmation. |
+| [rules.py](rules.py) | Shared amount, description, and category rules. |
 
-- Uses the CSV date as the single source of truth for the transaction date.
-- Uses the CSV date and conversion time for the generated ID.
-- Writes transactions from oldest to newest (as per [Expensica](https://github.com/dhruvir-zala/obsidian-expensica) logic) by sorting on the CSV date (which is sorted from newest to oldest).
-- Creates an ignored local `output/` folder when no output path is provided.
-- Prompts before writing if an explicitly provided target JSON file already exists.
-- Detects transaction type from the amount columns:
-  - column 3 -> `expense`
-  - column 4 -> `income`
-- Preserves the original bank description during conversion and merging.
-- Cleans descriptions and assigns keyword-based categories with a separate final command.
+## Installation
 
-## Files
+Use **Python 3.10 or later**. All scripts use the standard library; no packages need
+to be installed. Clone or download this repository and run commands from its root:
 
-- `convert.py`: convert CSV to JSON with original descriptions and default categories
-- `combinejson.py`: merge two or more account JSON files and collapse matched transfers
-- `cleanup.py`: clean descriptions and assign categories in place, after confirmation
-- `rules.py`: description cleanup, type detection, amount parsing, and category rules
-
-## Workflow
-
-Convert each account, combine the results, review unresolved transfers, then clean
-the combined file:
-
-```powershell
-python convert.py debit.csv output/debit.json saving.csv output/saving.json credit.csv output/credit.json --pretty
-python combinejson.py -a debit output/debit.json -a saving output/saving.json -a credit output/credit.json
+```sh
+git clone https://github.com/kozlovdennis/obsidian-expensica-csv-to-json.git
+cd obsidian-expensica-csv-to-json
+python --version
 ```
 
-Use the combined output path printed by `combinejson.py` in the cleanup command:
+The examples use `python`; substitute your Python 3 command if needed. `Path/` is a
+placeholder for your data directory. Quote paths or account names containing spaces.
 
-```powershell
-python cleanup.py "output/transactions-combined-YYYYMMDD-HHMMSS.json"
+## Usage
+
+**Convert -> combine -> review -> clean -> import into Expensica.** Run cleanup
+last so matching can use the original bank descriptions and reference numbers.
+
+Convert account files in order, then combine them using your Expensica account names:
+
+```sh
+python convert.py --pretty Path/debit.csv Path/debit.json Path/credit.csv Path/credit.json Path/saving.csv Path/saving.json
+python combinejson.py -a debit Path/debit.json -a credit Path/credit.json -a saving Path/saving.json
 ```
 
-Run cleanup last so transfer matching has the original bank descriptions.
+The merger prints the combined JSON and `.txt` log paths, matching-method counts,
+and unresolved transfers. Review these before cleanup. In the next command, replace
+`Path/transactions-combined-YYYYMMDD-HHMMSS.json` with the **actual printed JSON path**
+(the default directory is `output/`):
 
-## Convert usage
-
-```powershell
-python convert.py "C:\Path\cibc_chequing.csv" "C:\Path\Obsidian\VaultName\expensica-data\transactions.json" --pretty
+```sh
+python cleanup.py Path/transactions-combined-YYYYMMDD-HHMMSS.json
 ```
 
-Or omit the output path to write to the tool's local `output/` folder:
+Answer `y` to update that file in place or `n` to cancel. Review the result before
+importing or copying it into your vault's `transactions.json`.
 
-```powershell
-python convert.py "C:\Path\cibc_chequing.csv" --pretty
+## CLI reference
+
+Uppercase names are operands to replace. Brackets indicate optional arguments;
+`...` indicates repetition. All commands support `-h`, `--help` to display help
+and exit.
+
+### convert.py
+
+```text
+python convert.py [--pretty] [--dry-run] INPUT_CSV [OUTPUT_JSON]
+python convert.py [--pretty] [--dry-run] INPUT_CSV OUTPUT_JSON [INPUT_CSV OUTPUT_JSON ...]
 ```
 
-For multiple files, provide an input/output pair for each account:
+| Operand or option | Description and default |
+| --- | --- |
+| `INPUT_CSV` | Required CIBC CSV path. See [CSV format](#csv-format). |
+| `OUTPUT_JSON` | Output path. Optional for a single CSV; defaults to a timestamped file in the repository's `output/` directory. Required for each input in a batch. |
+| `--pretty` | Use two-space JSON indentation. Default: unindented JSON. |
+| `--dry-run` | Print JSON instead of writing files. Default: write files. Does not prompt for overwrites. |
 
-```powershell
-python convert.py debit.csv debit.json credit.csv credit.json saving.csv saving.json --pretty
+Batch pairs run from left to right; each output is written before the next input
+is read. Incomplete pairs are rejected before conversion. A processing error stops
+the batch; previously written files remain. Both flags apply to every pair. A batch
+dry run prints a separate JSON object for each input, rather than one JSON array
+or document.
+
+For an existing explicit output path, the prompt accepts `o`/`overwrite` to replace
+it or `n`/`new` to use the next available suffix, such as `Path/debit_1.json`.
+Other answers prompt again.
+
+### combinejson.py
+
+```text
+python combinejson.py --account NAME FILE --account NAME FILE [--account NAME FILE ...]
 ```
 
-Pairs are processed one by one, from left to right. Each file is written before
-the next is read, with an overwrite prompt for each existing output. An error
-stops processing; files already written remain. Incomplete pairs are rejected
-before any conversion. Omitting the output path is supported only for a single CSV.
+| Option | Description and expected values |
+| --- | --- |
+| `-a NAME FILE`, `--acc NAME FILE`, `--account NAME FILE` | Repeat for each account. Requires at least two pairs and unique account names. `NAME` is the account label; `FILE` is its JSON path. Aliases can be mixed. |
 
-`--pretty` and `--dry-run` apply to every pair. A batch dry run prints one JSON
-object per input, in order, without writing files or prompting for overwrites.
+Each input must be an object containing a `transactions` list. Matching pairs
+become one `internal` entry; other entries retain their account labels. See
+[Transfer matching](#transfer-matching) for compatibility and ambiguity rules.
+Combined JSON always uses two-space indentation.
 
-## Combine usage
+### cleanup.py
 
-```powershell
-python combinejson.py --account "debit" "C:\Path\debit.json" --account "savings" "C:\Path\savings.json" --account "credit" "C:\Path\credit.json"
+```text
+python cleanup.py FILE
 ```
 
-Repeat `--account NAME FILE` for each account (at least two, with unique names).
-Aliases: `--acc` and `-a`; these can be mixed in the same command.
-This replaces the old positional two-account command. Use your Expensica account names.
+`FILE` is a required JSON path containing a `transactions` list. Cleanup updates
+expense/income descriptions and categories using `rules.py`, then asks before
+writing:
 
-Matching transfer entries across different accounts collapse into one `internal`
-transaction, with `fromAccount` set to the expense account and `toAccount` to the
-income account. This supports debit ↔ savings and payments or cash advances between
-bank and credit accounts.
+```text
+Clean N transactions in Path/transactions.json and overwrite this file? [y/n]:
+```
 
-Both entries must belong to different accounts, have equal amounts, opposite
-income/expense types, compatible transfer descriptions, and dates no more than
-**five calendar days apart** (inclusive).
+`y` confirms; `n` cancels without modifying the file. Answers are case-insensitive;
+other answers prompt again, and end-of-input cancels. The saved JSON uses two-space
+indentation. IDs, dates, amounts, account fields, other metadata, transaction order,
+and internal entries are preserved. Existing expense/income categories are recalculated.
 
-Description helpers are case-insensitive and work inside full bank descriptions:
+### Output files
 
-| Outgoing expense | Incoming income | Transfer |
+Default paths are relative to the **repository directory**, not the working directory.
+Parent directories are created when conversion or combination writes a file.
+
+| Operation | Output |
+| --- | --- |
+| Conversion without an output path | `output/transactions-YYYYMMDD-HHMMSS.json`; adds a numeric suffix if needed. |
+| Combination | `output/transactions-combined-YYYYMMDD-HHMMSS.json` |
+| Combination log | Same basename as the combined JSON, with a `.txt` extension. |
+| Cleanup | The supplied file, overwritten only after `y`. |
+
+Filename timestamps use the local conversion/run time. Combination overwrites
+existing paths with the same timestamp without prompting. The repository's
+`input/`, `output/`, and files named `transactions.json` are ignored by Git.
+
+## Examples
+
+Convert one account to the default output directory, or choose an explicit path:
+
+```sh
+python convert.py Path/debit.csv --pretty
+python convert.py Path/debit.csv Path/debit.json
+```
+
+Preview conversion without writing files:
+
+```sh
+python convert.py Path/debit.csv --dry-run --pretty
+```
+
+Merge two accounts, using either alias, then clean the printed output path:
+
+```sh
+python combinejson.py --acc debit Path/debit.json --account credit Path/credit.json
+python cleanup.py Path/transactions-combined-YYYYMMDD-HHMMSS.json
+```
+
+## Technical details
+
+### CSV format
+
+Use UTF-8 CSV, with or without a byte-order mark, **without a header row**:
+
+| Column | Value |
+| --- | --- |
+| 1 | Transaction date in `YYYY-MM-DD` format. |
+| 2 | Original bank description. |
+| 3 | Debit amount: creates an `expense`. |
+| 4 | Credit amount: creates an `income`. |
+| 5 | Optional; ignored. |
+
+Exactly one amount column must be populated. Dollar signs and thousands separators
+are accepted; quote CSV cells containing commas. Blank rows are skipped. Rows with
+other column counts or invalid/missing amounts stop conversion and report the row
+number. Conversion keeps the CSV date and sorts by it from oldest to newest.
+
+### JSON format and IDs
+
+Transaction files use this container:
+
+```json
+{"transactions": []}
+```
+
+| Entry | Fields and behavior |
+| --- | --- |
+| Converted transaction | `id`, `date`, `time`, `type`, `amount`, `description`, `category`. The original description is preserved; categories start as `other_expense` or `other_income`. |
+| Unmatched expense/income after merging | Adds `account` using the supplied account name. |
+| Matched internal transfer | Uses `type` and `category` of `internal`, plus `fromAccount` and `toAccount`. Retains the outgoing entry's ID, date, time, and amount; description becomes `TRANSFER TO {destination account}` in uppercase. Missing outgoing time falls back to the merger's run time. |
+
+IDs have the form `YYYYMMDD-HHMMSS-xxxxxxxx`: CSV transaction date, local conversion
+time, and eight random hexadecimal characters. The `time` field is also conversion
+time because the export supplies no transaction time. Combined entries are sorted
+by date, time, then ID. Existing internal entries retain their fields.
+
+### Transfer matching
+
+Every candidate pair must have different accounts, equal amounts, opposite
+expense/income flows, compatible descriptions and account types, and dates at most
+**five calendar days apart**, inclusive. Currency values must also agree; a missing
+field is treated as null. Conversion does not add a currency field.
+
+Description helpers are case-insensitive and can appear inside full bank text:
+
+| Outgoing expense | Incoming income | Route |
 | --- | --- | --- |
-| `To account ...` | `From account ...` | Between savings and debit, in either direction |
-| `To card ...` | `Payment thank you / PAIEMENT MERCI` | Debit to credit |
-| `Cash advance ...` | Generic bank transfer | Credit to bank account |
+| `To account ...` | `From account ...` | Between bank accounts, including debit and savings. |
+| `To card ...` | `Payment thank you` or its French equivalent | Bank account to credit card. |
+| `Cash advance ...` | Generic bank transfer | Credit card to bank account. |
 
-The French spellings `PAINMENT MERCI` and `PAIEMEN T MERCI` are also recognized.
-Existing `BANK TRANSFER` and `INTERNET TRANSFER` descriptions remain supported as
-generic transfer candidates. Specific helpers take priority: `To account` cannot
-match a card payment just because its raw description also says `INTERNET TRANSFER`.
-An `Electronic Funds Transfer` prefix or an e-transfer alone is not enough.
-Account names are labels; they do not determine account types. Bank/credit roles
-are inferred from explicit transfer helpers across each account. Conflicting
-role evidence and incompatible transfer routes are rejected. If currency fields
-are present, they must agree.
+French variants include `PAIEMENT MERCI`, `PAINMENT MERCI`, and `PAIEMEN T MERCI`.
+`BANK TRANSFER` and `INTERNET TRANSFER` are generic candidates. Specific helpers
+take priority; `To account` does not become a card payment merely because its prefix
+says `INTERNET TRANSFER`. An e-transfer or `Electronic Funds Transfer` prefix alone
+is insufficient. Account labels do not determine types: explicit descriptions
+supply bank/credit roles. Conflicting role evidence rejects affected pairs.
 
-Matching uses these rules, in order:
+| Method | When a pair can merge |
+| --- | --- |
+| `bank_reference` | Identical references take priority over weaker edges; the pair must then be forced by the graph. Recognizes numbers of at least six digits after `INTERNET TRANSFER`, `BANK TRANSFER`, `REFERENCE`, or `REF`, with optional `#`, `NO.`, or `NUMBER`. Leading zeros are ignored. Card/account numbers are not references; conflicting references reject a pair. All other compatibility checks still apply. |
+| `forced_graph` | The pair appears in every maximum matching of compatible transfers: removing its edge reduces the maximum number of pairs. Closest dates or input order do not decide ambiguous matches. |
+| `equivalent_repeats` | A remaining connected group has equal outgoing/incoming counts and a complete pairing. Each side has identical account, date, time, flow, amount, currency, and normalized description, except IDs and reference values. Stable ordering resolves financially equivalent repeats. |
 
-1. **Bank references:** numbers following `INTERNET TRANSFER`, `BANK TRANSFER`,
-   `REFERENCE`, or `REF` are compared without leading zeros. Card/account numbers
-   are not transfer references. Two different references reject a pair. Identical
-   references take priority over weaker candidates, while still requiring all
-   amount, direction, account-type, currency, and five-day checks.
-2. **Forced graph pairs:** compatible expenses and incomes form a bipartite graph.
-   A pair is forced only if removing its edge reduces the maximum possible number
-   of matches. This resolves overlapping date windows without guessing by nearest
-   date. Being part of one possible maximum matching is not sufficient.
-3. **Equivalent repeats:** a remaining connected group can merge deterministically
-   only if it has equally many outgoing and incoming entries, a complete pairing,
-   and identical financial details on each side. Account, date, time, amount,
-   currency, and description must agree within each side; IDs and transfer reference
-   numbers may differ. Original IDs determine stable pairings. Different account/card
-   identifiers or dates do not qualify as identical repeats.
+Ambiguous entries and entries missing a compatible counterpart remain unchanged.
+The report lists their descriptions, dates, IDs, accounts, amounts, and reasons;
+ordinary transactions and existing internal entries are excluded. References and
+inferred account types support matching but do not verify ownership with the bank.
 
-Genuinely ambiguous entries remain unchanged. Entries without a compatible
-counterpart also remain. The command reports counts by matching method
-(`bank_reference`, `forced_graph`, `equivalent_repeats`), then ends with
-`Unmerged transfer transactions: N` and separate counts for ambiguity and missing
-compatible counterparts. Each unresolved entry lists its description, date, ID,
-account, amount, and reason. Ordinary purchases/income and already-internal
-transactions are excluded from this report.
+### Run log
 
-Review the unresolved entries before cleanup. The matcher checks references when
-available; it does not verify account ownership with the bank.
-
-This writes a new combined file to:
+Each combination writes a `.txt` log containing the console report, brief matching
+reasons, and ID-based pair references. It also lists candidate IDs for unresolved
+ambiguities. Full matched transaction records are not duplicated in the log.
 
 ```text
-output/transactions-combined-YYYYMMDD-HHMMSS.json
+Transaction details: Path/transactions-combined-YYYYMMDD-HHMMSS.json
+- id=20261001-120000-a1b2c3d4 <- incoming_id=20261002-120000-e5f6a7b8 | forced_graph
 ```
 
-The combined file uses the same `transactions.json` format as the converter.
+Look up `id` in the combined JSON. It is the original outgoing ID; `incoming_id`
+refers to the source account JSON because that entry was collapsed. Keep the source
+files for that lookup. No JSON audit file is created by new runs.
 
-Each run also writes a separate audit beside the combined file:
+### Description cleanup and category rules
 
-```text
-output/transactions-combined-YYYYMMDD-HHMMSS-audit.json
-```
-
-The audit's `matchedPairs` list records the original outgoing and incoming entries
-(including both IDs and account labels), internal transaction ID, matching method,
-reason, shared bank reference when available, and date difference. Its `unresolved`
-list records the remaining entries, reasons, and candidate IDs. Keep this audit
-when cleaning the combined file; it preserves the original descriptions.
-
-## Cleanup usage
-
-```powershell
-python cleanup.py "C:\Path\transactions.json"
-```
-
-Cleanup changes the supplied file **in place** and asks first:
-
-```text
-Clean N transactions in ... and overwrite this file? [y/n]:
-```
-
-- `y`: clean descriptions, recalculate expense/income categories, and overwrite.
-- `n`: cancel without changing the file.
-- Other answers prompt again; missing input cancels.
-
-Cleanup reuses the rules in `rules.py`. IDs, dates, amounts, account fields, other
-metadata, and internal transactions are preserved. Keep the original CSVs if you
-need to regenerate the raw descriptions for another merge.
-
-## Convert options
-
-- `--pretty`: write indented JSON
-- `--dry-run`: print the converted JSON instead of writing a file
-
-## Default output
-
-When the output path is omitted, the tool writes to:
-
-```text
-output/transactions-YYYYMMDD-HHMMSS.json
-```
-
-The timestamp comes from the conversion time, and `output/` is ignored by Git.
-
-## Existing output files
-
-If an explicitly provided output path already exists, the tool asks whether to overwrite it or write to a new suffixed file.
-
-```text
-transactions.json already exists. Overwrite it or write to a new suffixed file? [o/n]:
-```
-
-Choose `o` to overwrite the existing file, or `n` to write to the next available name such as `transactions_1.json`.
-
-## ID format
-
-Generated IDs look like this:
-
-```text
-YYYYMMDD-HHMMSS-xxxxxxxx
-```
-
-Example:
-
-```text
-20260410-154233-8f3c1e7a
-```
-
-- `YYYYMMDD` comes from the CSV transaction date
-- `HHMMSS` comes from the conversion time, because CIBC CSV does not provide timestamps
-- `xxxxxxxx` is 8 hexadecimal characters from `secrets.token_hex(4)`
-
-For example, a CSV row dated `2024-03-22` converted at `20:45:00` can produce an ID like:
-
-```text
-20240322-204500-55043779
-```
-
-## Description extraction
-
-`cleanup.py` removes common CIBC prefixes and numeric reference tokens, then keeps
-the remaining merchant or payee text in uppercase. `convert.py` preserves the
-original description, including its case and reference numbers.
-
-Example:
+Cleanup removes common CIBC prefixes and reference tokens, normalizes whitespace,
+and uppercases the resulting merchant/payee description. For example:
 
 ```text
 Point of Sale - Interac RETAIL PURCHASE 306001001089 CADENCE COFFEE
+-> CADENCE COFFEE
 ```
 
-becomes:
+If extraction leaves no description, internet transfers receive an incoming/outgoing
+bank-transfer label, with the last six reference digits when available. Other empty
+results become `UNKNOWN TRANSACTION`. Cleanup overwrites descriptions; keep original
+CSVs to regenerate raw JSON before another merge.
 
-```text
-CADENCE COFFEE
-```
-
-## Categories
-
-Conversion uses these default categories. Cleanup applies the keyword rules,
-falling back to:
-
-- `other_expense`
-- `other_income`
-
-You can tune the mappings in `rules.py` as you discover more merchants in your exports.
-
-## Default Expensica categories
-
-Use the category ID on the left in generated JSON and in `rules.py`.
-
-Expense categories:
-
-- `food` -> Food & Dining
-- `groceries` -> Groceries
-- `transportation` -> Transportation
-- `rent` -> Rent/Mortgage
-- `utilities` -> Utilities
-- `internet` -> Internet & Phone
-- `entertainment` -> Entertainment
-- `shopping` -> Shopping
-- `health` -> Healthcare
-- `education` -> Education
-- `travel` -> Travel
-- `fitness` -> Fitness
-- `pets` -> Pets
-- `gifts` -> Gifts & Donations
-- `personal` -> Personal Care
-- `childcare` -> Childcare
-- `subscriptions` -> Subscriptions
-- `insurance` -> Insurance
-- `taxes` -> Taxes
-- `other_expense` -> Other Expenses
-
-Income categories:
-
-- `salary` -> Salary
-- `freelance` -> Freelance
-- `business` -> Business
-- `investments` -> Investments
-- `dividends` -> Dividends
-- `rental` -> Rental Income
-- `gifts_received` -> Gifts Received
-- `tax_returns` -> Tax Returns
-- `other_income` -> Other Income
-
-## Editing category rules
-
-Category rules live in `rules.py` in `_EXPENSE_CATEGORY_RULES` and `_INCOME_CATEGORY_RULES`.
-Each rule has this shape:
+Edit `_EXPENSE_CATEGORY_RULES` and `_INCOME_CATEGORY_RULES` in [rules.py](rules.py).
+Rules use `(category_id, keywords)` tuples and run from top to bottom; the first
+match wins. Category matching uses the extracted description. For example:
 
 ```python
-(
-    "category_id",
-    (
-        "KEYWORD",
-        "ANOTHER KEYWORD",
-    ),
-),
+# Expense rules; re is already imported in rules.py.
+("food", ("COFFEE", "TIM HORTONS")),
+("rent", (re.compile(r"\bADA\b", re.IGNORECASE),)),
+# Income rule.
+("salary", ("PAYROLL",)),
 ```
 
-For example:
+String keywords are case-insensitive substring matches. A regex such as `\bADA\b`
+matches `Ada` without matching `PRADA`. Keep the trailing comma in a one-item
+keyword tuple. Unmatched categories fall back to `other_expense` or `other_income`.
+Category IDs are written as configured, without validation against your vault.
 
-```python
-_EXPENSE_CATEGORY_RULES = [
-    (
-        "food",
-        (
-            "COFFEE",
-            "TIM HORTONS",
-            "MCDONALD",
-        ),
-    ),
-    (
-        "rent",
-        (
-            "LANDLORD",
-            "RENT",
-            re.compile(r"\bADA\b", re.IGNORECASE),
-        ),
-    ),
-]
+<details>
+<summary>Category ID reference</summary>
 
-_INCOME_CATEGORY_RULES = [
-    (
-        "salary",
-        (
-            "PAYROLL",
-            "WAGE",
-            "SALARY",
-        ),
-    ),
-    (
-        "other_income",
-        (
-            "REFUND",
-            "REVERSAL",
-            "E-TRANSFER",
-            "ETRANSFER",
-            "TRANSFER",
-        ),
-    ),
-]
+| Type | ID | Display name |
+| --- | --- | --- |
+| Expense | `food` | Food & Dining |
+| Expense | `groceries` | Groceries |
+| Expense | `transportation` | Transportation |
+| Expense | `rent` | Rent/Mortgage |
+| Expense | `utilities` | Utilities |
+| Expense | `internet` | Internet & Phone |
+| Expense | `entertainment` | Entertainment |
+| Expense | `shopping` | Shopping |
+| Expense | `health` | Healthcare |
+| Expense | `education` | Education |
+| Expense | `travel` | Travel |
+| Expense | `fitness` | Fitness |
+| Expense | `pets` | Pets |
+| Expense | `gifts` | Gifts & Donations |
+| Expense | `personal` | Personal Care |
+| Expense | `childcare` | Childcare |
+| Expense | `subscriptions` | Subscriptions |
+| Expense | `insurance` | Insurance |
+| Expense | `taxes` | Taxes |
+| Expense | `other_expense` | Other Expenses |
+| Income | `salary` | Salary |
+| Income | `freelance` | Freelance |
+| Income | `business` | Business |
+| Income | `investments` | Investments |
+| Income | `dividends` | Dividends |
+| Income | `rental` | Rental Income |
+| Income | `gifts_received` | Gifts Received |
+| Income | `tax_returns` | Tax Returns |
+| Income | `other_income` | Other Income |
+
+</details>
+
+### Repeated imports and tests
+
+Conversion and combination do not append to an existing transaction file or remove
+duplicate imports. Review each result before copying or importing it into Expensica.
+
+Run the test suite from the repository root:
+
+```sh
+python -m unittest discover -s tests -v
 ```
 
-Plain string keywords are case-insensitive. For example, `"AMZN Mktp"`, `"AMZN MKTP"`, and `"amzn mktp"` match the same way.
+The local-input regression runs when `input/debit.json`, `input/saving.json`, and
+`input/credit.json` are available; otherwise that test is skipped.
 
-Plain strings are substring matches. This is useful for broad merchant patterns like `"COFFEE"` or `"AMZN"`, but it can be too broad for short names. For exact word matching, use a regex keyword:
-
-```python
-re.compile(r"\bADA\b", re.IGNORECASE),
-```
-
-The `re` module is already imported at the top of `rules.py`.
-
-That matches `Ada`, but not `PRADA`.
-
-For a single keyword, remember the trailing comma:
-
-```python
-(
-    "gifts_received",
-    (
-        "GIFT",
-    ),
-),
-```
-
-Without the comma, Python treats `("GIFT")` as a string and the matcher checks each letter separately.
-
-Rules are checked from top to bottom. Put more specific rules before broader rules if a transaction could match multiple categories.
-
-After editing category rules, run cleanup on the final JSON:
-
-```powershell
-python cleanup.py "C:\Path\transactions.json"
-```
-
-## Appending or merging
-
-The converter does not append into an existing `transactions.json` automatically. This is intentional because repeated bank imports can easily create duplicate transactions.
-
-Recommended workflow:
-
-1. Convert each account into a separate JSON file.
-2. Combine the account files and review the unresolved transfer report.
-3. Run cleanup on the combined file and review the result.
-4. Import or copy the reviewed transactions into your Expensica data file manually.
-
-If you explicitly pass your Obsidian `transactions.json` path, the tool asks before overwriting it:
-
-```powershell
-python convert.py "C:\Path\cibc_chequing.csv" "C:\Path\Obsidian\VaultName\expensica-data\transactions.json" --pretty
-```
-
-If append support is needed later, it should be implemented as a separate script with duplicate detection.
+Licensed under [MIT](LICENSE).

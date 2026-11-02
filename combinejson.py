@@ -4,9 +4,11 @@ import argparse
 import json
 import re
 from collections import Counter
+from contextlib import redirect_stdout
 from datetime import date, datetime
 from decimal import Decimal
 from itertools import combinations
+from io import StringIO
 from pathlib import Path
 from typing import Any
 
@@ -350,6 +352,33 @@ def report_unmerged_transfers(
         )
 
 
+def write_run_log(
+    path: Path, output_path: Path, console_output: str,
+    matched_pairs: list[dict[str, Any]], diagnostics: list[dict[str, Any]],
+) -> None:
+    lines = [
+        console_output.rstrip(), "",
+        f"Transaction details: {output_path}",
+        "Look up id in that JSON. Merged entries retain the outgoing ID; incoming IDs refer to source files.",
+        "", "Matching reasons:",
+    ]
+    reasons = {entry["method"]: entry["reason"] for entry in matched_pairs}
+    lines.extend(f"- {method}: {reason}" for method, reason in sorted(reasons.items()))
+    lines.extend(["", "Matched pair references:"])
+    lines.extend(
+        f"- id={entry['internalId']} <- incoming_id={entry['incoming']['id']} | {entry['method']}"
+        for entry in matched_pairs
+    )
+    alternatives = [entry for entry in diagnostics if entry["candidateIds"]]
+    if alternatives:
+        lines.extend(["", "Unresolved candidate references:"])
+        lines.extend(
+            f"- id={entry['transaction']['id']} | candidates={', '.join(entry['candidateIds'])}"
+            for entry in alternatives
+        )
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
@@ -371,14 +400,17 @@ def main() -> int:
 
     output_path = default_output_path(run_time)
     write_output(output_path, combined_transactions)
-    audit_path = output_path.with_name(f"{output_path.stem}-audit.json")
-    write_json(audit_path, {"matchedPairs": audit, "unresolved": diagnostics})
-    print(f"Combined {combined_count} transfer pairs")
-    methods = Counter(entry["method"] for entry in audit)
-    print("Matching methods: " + ", ".join(f"{method}={count}" for method, count in sorted(methods.items())))
-    print(f"Wrote {len(combined_transactions)} transactions to {output_path}")
-    print(f"Wrote pair audit to {audit_path}")
-    report_unmerged_transfers(combined_transactions, diagnostics)
+    log_path = output_path.with_suffix(".txt")
+    with redirect_stdout(StringIO()) as report:
+        print(f"Combined {combined_count} transfer pairs")
+        methods = Counter(entry["method"] for entry in audit)
+        print("Matching methods: " + ", ".join(f"{method}={count}" for method, count in sorted(methods.items())))
+        print(f"Wrote {len(combined_transactions)} transactions to {output_path}")
+        print(f"Wrote run log to {log_path}")
+        report_unmerged_transfers(combined_transactions, diagnostics)
+    console_output = report.getvalue()
+    write_run_log(log_path, output_path, console_output, audit, diagnostics)
+    print(console_output, end="")
     return 0
 
 
