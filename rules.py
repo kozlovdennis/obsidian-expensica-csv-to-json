@@ -37,7 +37,6 @@ _TRAILING_PATTERNS = [
 
 _DESCRIPTION_CLEANUPS = [
     (re.compile(r"\bSQ \*", re.IGNORECASE), ""),
-    (re.compile(r"^[A-Z0-9-]{8,}\s+"), ""),
     (re.compile(r"\$\d+(?:\.\d+)?", re.IGNORECASE), " "),
     (re.compile(r"#\s+(\d+)"), r"#\1"),
     (re.compile(r"\bMCDONALD\s+S\b", re.IGNORECASE), "MCDONALD'S"),

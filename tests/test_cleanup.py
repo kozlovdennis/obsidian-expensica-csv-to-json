@@ -13,6 +13,32 @@ from convert import row_to_transaction
 
 
 class ConversionAndCleanupTests(unittest.TestCase):
+    def test_ten_real_descriptions_preserve_merchant_names(self):
+        cases = (
+            ("WAL-MART SUPERCENTER#3661 FORT ST. JOHN, BC", "WAL-MART SUPERCENTER#3661 FORT ST. JOHN, BC"),
+            ("DOLLARAMA # 659 FORT ST. JOHN, BC", "DOLLARAMA #659 FORT ST. JOHN, BC"),
+            ("SHOPPERS DRUG MART #02 FORT ST. JOHN, BC", "SHOPPERS DRUG MART #02 FORT ST. JOHN, BC"),
+            ("PETRO-CANADA 02512 FORT ST JOHN, BC", "PETRO-CANADA 02512 FORT ST JOHN, BC"),
+            ("CANADIAN TIRE #363 FT ST JOHN, BC", "CANADIAN TIRE #363 FT ST JOHN, BC"),
+            ("STARBUCKS COFFEE #5617 KAMLOOPS, BC", "STARBUCKS COFFEE #5617 KAMLOOPS, BC"),
+            ("WIRELESS FIX PRINCE GEORGE, BC", "WIRELESS FIX PRINCE GEORGE, BC"),
+            ("TOUCHLESS CAR WASH PRINCE GEORGE, BC", "TOUCHLESS CAR WASH PRINCE GEORGE, BC"),
+            ("IMMIGRATION CANADA ONLINE OTTAWA, ON", "IMMIGRATION CANADA ONLINE OTTAWA, ON"),
+            ("NORTHERN LIGHTS COLLEG FORT ST-JOHN, BC", "NORTHERN LIGHTS COLLEG FORT ST-JOHN, BC"),
+        )
+        for raw, expected in cases:
+            with self.subTest(description=raw):
+                original = row_to_transaction([
+                    "2026-10-01", raw, "15.25", "",
+                ], datetime(2026, 11, 1))
+                original["account"] = "credit"
+                cleaned = clean_transaction(original)
+                self.assertEqual(cleaned["description"], expected)
+                self.assertEqual(clean_transaction(cleaned), cleaned)
+                self.assertEqual(original["description"], raw)
+                for key in ("id", "date", "time", "amount", "type", "account"):
+                    self.assertEqual(cleaned[key], original[key])
+
     def test_conversion_preserves_description_and_defers_category_rules(self):
         raw = "  Point of Sale - Interac RETAIL PURCHASE 123456789 CADENCE COFFEE  "
         transaction = row_to_transaction(["2026-10-01", raw, "15.25", ""], datetime(2026, 11, 1))
