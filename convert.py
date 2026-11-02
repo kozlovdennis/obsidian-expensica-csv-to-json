@@ -8,19 +8,19 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from rules import fallback_description, extract_description, infer_category, infer_transaction_type
+from rules import EXPENSE_FALLBACK_CATEGORY, INCOME_FALLBACK_CATEGORY, infer_transaction_type
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Convert CIBC transaction CSV files into obsidian-expensica transactions.json format."
     )
-    parser.add_argument("input_csv", type=Path, help="Path to the CIBC CSV export.")
     parser.add_argument(
-        "output_json",
-        nargs="?",
+        "paths",
+        nargs="+",
         type=Path,
-        help="Optional path to the output transactions.json file.",
+        metavar="PATH",
+        help="One input CSV, or repeated INPUT_CSV OUTPUT_JSON pairs, processed in order.",
     )
     parser.add_argument(
         "--pretty",
@@ -46,12 +46,12 @@ def row_to_transaction(row: list[str], conversion_time: datetime) -> dict[str, A
     elif len(row) != 4:
         raise ValueError(f"Expected 4 or 5 columns, got {len(row)}: {row!r}")
 
-    date_text, raw_description, debit, credit = [cell.strip() for cell in row]
+    date_text, raw_description, debit, credit = row
+    date_text = date_text.strip()
     transaction_type, amount = infer_transaction_type(debit, credit)
-    description = extract_description(raw_description)
-    if description == "Unknown transaction":
-        description = fallback_description(raw_description, transaction_type)
-    category = infer_category(transaction_type, raw_description, description)
+    category = (
+        EXPENSE_FALLBACK_CATEGORY if transaction_type == "expense" else INCOME_FALLBACK_CATEGORY
+    )
 
     return {
         "id": generate_transaction_id(date_text, conversion_time),
@@ -59,7 +59,7 @@ def row_to_transaction(row: list[str], conversion_time: datetime) -> dict[str, A
         "time": f"{conversion_time:%H:%M:%S}",
         "type": transaction_type,
         "amount": float(amount),
-        "description": description.upper(),
+        "description": raw_description,
         "category": category,
     }
 
@@ -134,22 +134,29 @@ def write_output(
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
+    if len(args.paths) == 1:
+        pairs = [(args.paths[0], None)]
+    elif len(args.paths) % 2:
+        parser.error("Provide one input CSV, or complete INPUT_CSV OUTPUT_JSON pairs")
+    else:
+        pairs = zip(args.paths[::2], args.paths[1::2])
 
-    conversion_time = datetime.now()
-    transactions = convert_csv(args.input_csv, conversion_time)
+    for input_csv, requested_output in pairs:
+        conversion_time = datetime.now()
+        transactions = convert_csv(input_csv, conversion_time)
 
-    if args.dry_run:
-        payload = {"transactions": transactions}
-        print(json.dumps(payload, indent=2 if args.pretty else None, ensure_ascii=False))
-        return 0
+        if args.dry_run:
+            payload = {"transactions": transactions}
+            print(json.dumps(payload, indent=2 if args.pretty else None, ensure_ascii=False))
+            continue
 
-    output_json = resolve_output_path(args.output_json, conversion_time)
-    write_output(
-        output_json,
-        transactions,
-        pretty=args.pretty,
-    )
-    print(f"Converted {len(transactions)} transactions into {output_json}")
+        output_json = resolve_output_path(requested_output, conversion_time)
+        write_output(
+            output_json,
+            transactions,
+            pretty=args.pretty,
+        )
+        print(f"Converted {len(transactions)} transactions into {output_json}")
     return 0
 
 

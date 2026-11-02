@@ -13,6 +13,7 @@ Thumbs.db
 *.log
 transactions.json
 output/
+input/
 
 dist/
 build/
