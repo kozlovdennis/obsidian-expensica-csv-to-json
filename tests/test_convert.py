@@ -83,6 +83,17 @@ class ConvertCommandTests(unittest.TestCase):
         self.assertTrue(self.pairs[0][1].exists())
         self.assertFalse(any(destination.exists() for _, destination in self.pairs[1:]))
 
+    def test_closed_stdin_overwrite_prompt_exits_cleanly(self):
+        destination = self.pairs[0][1]
+        destination.write_text("existing data", encoding="utf-8")
+        with patch("builtins.input", side_effect=EOFError):
+            with contextlib.redirect_stderr(io.StringIO()) as err:
+                with self.assertRaises(SystemExit) as error:
+                    self.run_command([self.arguments[0], self.arguments[1]])
+        self.assertNotEqual(error.exception.code, 0)
+        self.assertIn("already exists", str(error.exception.code))
+        self.assertEqual(destination.read_text(encoding="utf-8"), "existing data")
+
 
 if __name__ == "__main__":
     unittest.main()

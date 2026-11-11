@@ -104,9 +104,15 @@ def resolve_output_path(output_json: Path | None, conversion_time: datetime) -> 
         return output_json
 
     while True:
-        answer = input(
-            f"{output_json} already exists. Overwrite it or write to a new suffixed file? [o/n]: "
-        ).strip().lower()
+        try:
+            answer = input(
+                f"{output_json} already exists. Overwrite it or write to a new suffixed file? [o/n]: "
+            ).strip().lower()
+        except EOFError:
+            raise SystemExit(
+                f"error: '{output_json}' already exists and no answer was given "
+                "(stdin is closed; re-run interactively or remove the file)"
+            )
 
         if answer in {"o", "overwrite"}:
             return output_json
